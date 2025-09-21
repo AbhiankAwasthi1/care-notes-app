@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Bot, User, Heart, Pill, Activity, Clock, AlertTriangle } from 'lucide-react';
+import { Send, Bot, User, Heart, Pill, Activity, Clock } from 'lucide-react';
 
 interface ChatMessage {
   id: string;
@@ -17,7 +17,7 @@ const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({ patientContext }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
-      message: 'Hello! I\'m your AI health assistant. I can help you with medications, symptoms, and general health questions. How can I assist you today?',
+      message: "Hello! I'm your AI health assistant. I can help you with medications, symptoms, and general health questions. How can I assist you today?",
       timestamp: new Date(),
       isUser: false
     }
@@ -34,9 +34,14 @@ const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({ patientContext }) => {
     scrollToBottom();
   }, [messages]);
 
+  // escapeRegExp helper for building regex safely
+  const escapeRegExp = (string: string) => {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  };
+
   const getAIResponse = async (message: string): Promise<string> => {
     const lowerMessage = message.toLowerCase();
-    const contextPrefix = patientContext ? `Patient info: ${patientContext}. ` : ''; // <-- add context
+    const contextPrefix = patientContext ? `Patient info: ${patientContext}. ` : '';
 
     // Medication-related queries
     if (lowerMessage.includes('medication') || lowerMessage.includes('pill')) {
@@ -58,7 +63,41 @@ const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({ patientContext }) => {
       return contextPrefix + bpResponses[Math.floor(Math.random() * bpResponses.length)];
     }
 
-    // Symptoms
+    // --- Symptom keyword detection (explicit per your request) ---
+    const symptomMap: { [key: string]: string } = {
+      'fatigue': 'Fatigue can result from poor sleep, stress, anemia, or medication side effects. Try maintaining a regular sleep schedule, staying hydrated, and talk to your doctor if fatigue is persistent or impacts daily life.',
+      'headache': 'Headaches are common—rest, hydration, and over-the-counter pain relief may help. Seek urgent care if you have a sudden severe headache, confusion, fainting, or vision changes.',
+      'nausea': 'For nausea try sipping clear fluids, eating bland foods (toast, crackers), and avoiding strong smells. If you have persistent vomiting, signs of dehydration, or blood in vomit, contact a healthcare professional.',
+      'cough': 'For most short-term coughs, rest, fluids, and avoiding irritants help. If cough lasts more than a few weeks, produces blood, or is accompanied by high fever or shortness of breath, see a doctor.',
+      'dizziness': 'If you feel dizzy, sit or lie down until it passes and avoid sudden movements. Dizziness with fainting, chest pain, severe headache, or weakness needs prompt medical evaluation.',
+      'sore throat': 'Gargling with warm salt water, staying hydrated, and lozenges can relieve a sore throat. If you have difficulty breathing or swallowing, drooling, or a very high fever, seek immediate care.',
+      'shortness of breath': 'Shortness of breath can be serious. If it is sudden, severe, or accompanied by chest pain, fainting, or blue lips, seek emergency medical care right away. Otherwise contact your doctor promptly.',
+      'chest pain': 'Chest pain can be life-threatening. If it is sudden, severe, radiates to the arm/jaw, or comes with sweating and shortness of breath, call emergency services immediately.',
+      'back pain': 'For typical back pain, gentle movement, heat/ice, and short-term pain relievers may help. If you experience numbness, weakness in legs, or loss of bowel/bladder control, seek urgent medical attention.',
+      'insomnia': 'Improve sleep hygiene: keep a consistent schedule, avoid screens before bed, limit caffeine, and create a comfortable sleep environment. If insomnia is chronic, discuss treatment options with your healthcare provider.'
+    };
+
+    // Build regexes and find matches
+    const foundSymptoms: string[] = [];
+    Object.keys(symptomMap).forEach((symptom) => {
+      const pattern = new RegExp(`\\b${escapeRegExp(symptom)}\\b`, 'i');
+      if (pattern.test(message)) {
+        foundSymptoms.push(symptom);
+      }
+    });
+
+    // If multiple symptoms mentioned in same input -> return generic advice exactly as requested
+    if (foundSymptoms.length > 1) {
+      return contextPrefix + 'Remember to consult your doctor for personalized advice.';
+    }
+
+    // If exactly one symptom matched, return that pre-generated response
+    if (foundSymptoms.length === 1) {
+      const symptom = foundSymptoms[0];
+      return contextPrefix + symptomMap[symptom];
+    }
+
+    // Generic symptom catch-all (preserve previous behavior)
     if (lowerMessage.includes('symptom') || lowerMessage.includes('pain') || lowerMessage.includes('dizzy')) {
       const symptomResponses = [
         'Track any new or worsening symptoms daily.',
@@ -70,7 +109,7 @@ const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({ patientContext }) => {
 
     // Exercise / diet / general
     const generalResponses = [
-      'I\'m here to help with health questions.',
+      "I'm here to help with health questions.",
       'Remember to consult your doctor for personalized advice.',
       'Ask me about medication timing, symptoms, or healthy lifestyle tips.'
     ];
