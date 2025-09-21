@@ -10,7 +10,7 @@ interface ChatMessage {
 }
 
 interface EnhancedAIChatProps {
-  patientContext?: string; // <-- NEW PROP
+  patientContext?: string;
 }
 
 const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({ patientContext }) => {
@@ -34,17 +34,20 @@ const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({ patientContext }) => {
     scrollToBottom();
   }, [messages]);
 
-  // escapeRegExp helper for building regex safely
-  const escapeRegExp = (string: string) => {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  };
+  // normalize input: remove punctuation, collapse spaces, lowercase
+  const normalize = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
   const getAIResponse = async (message: string): Promise<string> => {
     const lowerMessage = message.toLowerCase();
     const contextPrefix = patientContext ? `Patient info: ${patientContext}. ` : '';
 
     // Medication-related queries
-    if (lowerMessage.includes('medication') || lowerMessage.includes('pill')) {
+    if (lowerMessage.includes('medication') || lowerMessage.includes('pill') || lowerMessage.includes('medicine')) {
       const medResponses = [
         'For best results, take your medications at the same time each day.',
         'Morning medications are usually best taken 30 minutes before breakfast.',
@@ -63,30 +66,47 @@ const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({ patientContext }) => {
       return contextPrefix + bpResponses[Math.floor(Math.random() * bpResponses.length)];
     }
 
-    // --- Symptom keyword detection (explicit per your request) ---
-    const symptomMap: { [key: string]: string } = {
-      'fatigue': 'Fatigue can result from poor sleep, stress, anemia, or medication side effects. Try maintaining a regular sleep schedule, staying hydrated, and talk to your doctor if fatigue is persistent or impacts daily life.',
-      'headache': 'Headaches are common—rest, hydration, and over-the-counter pain relief may help. Seek urgent care if you have a sudden severe headache, confusion, fainting, or vision changes.',
-      'nausea': 'For nausea try sipping clear fluids, eating bland foods (toast, crackers), and avoiding strong smells. If you have persistent vomiting, signs of dehydration, or blood in vomit, contact a healthcare professional.',
-      'cough': 'For most short-term coughs, rest, fluids, and avoiding irritants help. If cough lasts more than a few weeks, produces blood, or is accompanied by high fever or shortness of breath, see a doctor.',
-      'dizziness': 'If you feel dizzy, sit or lie down until it passes and avoid sudden movements. Dizziness with fainting, chest pain, severe headache, or weakness needs prompt medical evaluation.',
-      'sore throat': 'Gargling with warm salt water, staying hydrated, and lozenges can relieve a sore throat. If you have difficulty breathing or swallowing, drooling, or a very high fever, seek immediate care.',
-      'shortness of breath': 'Shortness of breath can be serious. If it is sudden, severe, or accompanied by chest pain, fainting, or blue lips, seek emergency medical care right away. Otherwise contact your doctor promptly.',
-      'chest pain': 'Chest pain can be life-threatening. If it is sudden, severe, radiates to the arm/jaw, or comes with sweating and shortness of breath, call emergency services immediately.',
-      'back pain': 'For typical back pain, gentle movement, heat/ice, and short-term pain relievers may help. If you experience numbness, weakness in legs, or loss of bowel/bladder control, seek urgent medical attention.',
-      'insomnia': 'Improve sleep hygiene: keep a consistent schedule, avoid screens before bed, limit caffeine, and create a comfortable sleep environment. If insomnia is chronic, discuss treatment options with your healthcare provider.'
+    // Symptom detection using keyword lists (more robust than single regex)
+    const symptomKeywords: { [symptom: string]: string[] } = {
+      fatigue: ['fatigue', 'tired', 'exhausted', 'low energy', 'lack energy', 'sleepy all day'],
+      headache: ['headache', 'headaches', 'migraine', 'head pain', 'pain in head'],
+      nausea: ['nausea', 'nauseous', 'vomit', 'vomiting', 'feeling sick', 'queasy'],
+      cough: ['cough', 'coughing', 'dry cough', 'wet cough'],
+      dizziness: ['dizziness', 'dizzy', 'lightheaded', 'light-headed', 'vertigo', 'faint'],
+      'sore throat': ['sore throat', 'throat pain', 'throat sore', 'throat hurts'],
+      'shortness of breath': [
+        'shortness of breath',
+        'short of breath',
+        'breathless',
+        'cant breathe',
+        "can't breathe",
+        'difficulty breathing',
+        'trouble breathing',
+        'sob'
+      ],
+      'chest pain': ['chest pain', 'pain in chest', 'chest pains', 'tightness in chest'],
+      'back pain': ['back pain', 'lower back pain', 'upper back pain', 'backache', 'back ache'],
+      insomnia: ["insomnia", "can't sleep", "cant sleep", 'no sleep', 'sleep trouble', 'trouble sleeping']
     };
 
-    // Build regexes and find matches
+    const normalized = normalize(message);
     const foundSymptoms: string[] = [];
-    Object.keys(symptomMap).forEach((symptom) => {
-      const pattern = new RegExp(`\\b${escapeRegExp(symptom)}\\b`, 'i');
-      if (pattern.test(message)) {
-        foundSymptoms.push(symptom);
-      }
-    });
 
-    // If multiple symptoms mentioned in same input -> return generic advice exactly as requested
+    // find matches
+    for (const [symptom, keywords] of Object.entries(symptomKeywords)) {
+      for (const kw of keywords) {
+        // normalize keyword in the same way to ensure consistent matching
+        const normalizedKw = normalize(kw);
+        if (!normalizedKw) continue;
+        // check full phrase presence
+        if (normalized.includes(normalizedKw)) {
+          foundSymptoms.push(symptom);
+          break; // avoid duplicate matches for same symptom
+        }
+      }
+    }
+
+    // If multiple symptoms are mentioned, return the exact generic advice requested
     if (foundSymptoms.length > 1) {
       return contextPrefix + 'Remember to consult your doctor for personalized advice.';
     }
@@ -94,10 +114,35 @@ const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({ patientContext }) => {
     // If exactly one symptom matched, return that pre-generated response
     if (foundSymptoms.length === 1) {
       const symptom = foundSymptoms[0];
-      return contextPrefix + symptomMap[symptom];
+      // Hard-coded responses for each symptom (unchanged wording but centralized here)
+      const symptomMap: { [key: string]: string } = {
+        fatigue:
+          'Fatigue can result from poor sleep, stress, anemia, or medication side effects. Try maintaining a regular sleep schedule, staying hydrated, and talk to your doctor if fatigue is persistent or impacts daily life.',
+        headache:
+          'Headaches are common—rest, hydration, and over-the-counter pain relief may help. Seek urgent care if you have a sudden severe headache, confusion, fainting, or vision changes.',
+        nausea:
+          'For nausea try sipping clear fluids, eating bland foods (toast, crackers), and avoiding strong smells. If you have persistent vomiting, signs of dehydration, or blood in vomit, contact a healthcare professional.',
+        cough:
+          'For most short-term coughs, rest, fluids, and avoiding irritants help. If cough lasts more than a few weeks, produces blood, or is accompanied by high fever or shortness of breath, see a doctor.',
+        dizziness:
+          'If you feel dizzy, sit or lie down until it passes and avoid sudden movements. Dizziness with fainting, chest pain, severe headache, or weakness needs prompt medical evaluation.',
+        'sore throat':
+          'Gargling with warm salt water, staying hydrated, and lozenges can relieve a sore throat. If you have difficulty breathing or swallowing, drooling, or a very high fever, seek immediate care.',
+        'shortness of breath':
+          'Shortness of breath can be serious. If it is sudden, severe, or accompanied by chest pain, fainting, or blue lips, seek emergency medical care right away. Otherwise contact your doctor promptly.',
+        'chest pain':
+          'Chest pain can be life-threatening. If it is sudden, severe, radiates to the arm/jaw, or comes with sweating and shortness of breath, call emergency services immediately.',
+        'back pain':
+          'For typical back pain, gentle movement, heat/ice, and short-term pain relievers may help. If you experience numbness, weakness in legs, or loss of bowel/bladder control, seek urgent medical attention.',
+        insomnia:
+          'Improve sleep hygiene: keep a consistent schedule, avoid screens before bed, limit caffeine, and create a comfortable sleep environment. If insomnia is chronic, discuss treatment options with your healthcare provider.'
+      };
+
+      // safe fallback if mapping missing
+      return contextPrefix + (symptomMap[symptom] ?? 'Remember to consult your doctor for personalized advice.');
     }
 
-    // Generic symptom catch-all (preserve previous behavior)
+    // If no symptom matched, fallback to prior symptom catch-all (keep useful behavior)
     if (lowerMessage.includes('symptom') || lowerMessage.includes('pain') || lowerMessage.includes('dizzy')) {
       const symptomResponses = [
         'Track any new or worsening symptoms daily.',
@@ -107,7 +152,7 @@ const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({ patientContext }) => {
       return contextPrefix + symptomResponses[Math.floor(Math.random() * symptomResponses.length)];
     }
 
-    // Exercise / diet / general
+    // General responses
     const generalResponses = [
       "I'm here to help with health questions.",
       'Remember to consult your doctor for personalized advice.',
@@ -141,7 +186,7 @@ const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({ patientContext }) => {
 
       setMessages(prev => [...prev, responseMessage]);
       setIsTyping(false);
-    }, 1500);
+    }, 800); // slightly faster response feel
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
